@@ -1,5 +1,5 @@
 const { request } = require("express");
-const db = require("../connection/route");
+const db = require("../../connection/route");
 const bcrypt = require("bcrypt");
 const saltRounds = 10;
 
@@ -20,7 +20,7 @@ const facultyAuth = (req, res) => {
         if (result) {
           res.send(result);
         } else {
-          req.send({ message: "Enter correct asked details" });
+          res.send({ message: "Enter correct asked details" });
         }
       }
     );
