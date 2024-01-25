@@ -18,7 +18,7 @@ const facultyLogin = (req, res) => {
           if (response) {
             res.send(result);
           } else {
-            res.send({ message: "Wrong username/password combination!" });
+            res.send({ message: "Wrong password combination!" });
           }
         });
       } else {
