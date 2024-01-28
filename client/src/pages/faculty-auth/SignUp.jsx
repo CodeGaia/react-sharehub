@@ -50,6 +50,10 @@ export default function SignUp() {
           color: "#fff",
         },
       });
+      setUsername("");
+      setPhoneNumber("");
+      setEmail("");
+      setPassword("");
       console.log(response);
     } catch (error) {
       console.log(error);
