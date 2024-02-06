@@ -37,7 +37,7 @@ export default function SignIn() {
             },
           });
         } else {
-          navigate("/upload");
+          navigate("/dashboard");
         }
 
         console.log(response);
