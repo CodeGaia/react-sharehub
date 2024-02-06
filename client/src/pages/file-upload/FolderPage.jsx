@@ -250,17 +250,19 @@ function FolderPage() {
   };
 
   const deleteFolder = async (folderId) => {
-    // Display a confirmation dialog
     const isConfirmed = window.confirm("Are you sure you want to delete this folder?");
-  
-    // Proceed with deletion only if the user confirmed
     if (isConfirmed) {
       try {
-        // Delete the folder from Firestore
         await deleteDoc(doc(db, "folders", folderId));
-  
-        // Option 1: Refetch folders to update UI
-        fetchFolders();
+        
+        // If it's a subfolder, update the currentFolder's subfolders state
+        if (currentFolder) {
+          const updatedSubfolders = currentFolder.subfolders.filter(folder => folder.id !== folderId);
+          setCurrentFolder({ ...currentFolder, subfolders: updatedSubfolders });
+        } else {
+          // If it's a root folder, update the folders state
+          setFolders(prevFolders => prevFolders.filter(folder => folder.id !== folderId));
+        }
   
         toast("Folder deleted successfully", {
           icon: "🗑️",
@@ -275,7 +277,6 @@ function FolderPage() {
         toast.error("Error deleting folder");
       }
     } else {
-      // User clicked 'Cancel', do nothing
       console.log("Folder deletion cancelled.");
     }
   };
