@@ -1,3 +1,4 @@
+import "chart.js/auto";
 import {
   addDoc,
   collection,
@@ -10,6 +11,7 @@ import {
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { File, FileText, FolderCog, Image, Trash, X } from "lucide-react";
 import React, { useEffect, useState } from "react";
+import { Doughnut } from "react-chartjs-2";
 import toast, { Toaster } from "react-hot-toast";
 import Modal from "react-modal";
 import { db, storage } from "../../../firebase";
@@ -22,11 +24,68 @@ function FolderPage() {
   const [folderPath, setFolderPath] = useState([]);
   const [files, setFiles] = useState([]);
   const [previewUrl, setPreviewUrl] = useState(null);
+  const [folderUsageChartData, setFolderUsageChartData] = useState([]);
+
+  useEffect(() => {
+    const fetchInitialDataAndUpdateChart = async () => {
+      await fetchFolders(); // Fetch folders and implicitly update state
+      await fetchAllFiles(); // Fetch files and implicitly update state
+      updateFolderUsageChartData(); // Call this after the states are updated
+    };
+
+    fetchInitialDataAndUpdateChart();
+  }, []);
+
+  useEffect(() => {
+    updateFolderUsageChartData();
+  }, [folders, files]);
 
   useEffect(() => {
     Modal.setAppElement("#root");
     fetchFolders();
   }, []);
+
+  const updateFolderUsageChartData = async () => {
+    const foldersWithFilesCount = await Promise.all(
+      folders.map(async (folder) => {
+        // Fetch files directly in the folder
+        const directFilesCount = files.filter(
+          (file) => file.folderId === folder.id
+        ).length;
+
+        let subfolderFilesCount = 0;
+        if (folder.subfolders) {
+          for (const subfolder of folder.subfolders) {
+            const subfolderFiles = files.filter(
+              (file) => file.folderId === subfolder.id
+            ).length;
+            subfolderFilesCount += subfolderFiles;
+          }
+        }
+
+        const totalFiles = directFilesCount + subfolderFilesCount;
+        // Assuming a max of 3 files per folder for simplicity, you might want to adjust this based on your actual logic
+        const usagePercentage = (totalFiles / 3) * 100;
+
+        return {
+          folderName: folder.name,
+          usagePercentage: Math.min(usagePercentage, 100), // Ensure it doesn't exceed 100%
+        };
+      })
+    );
+
+    setFolderUsageChartData(foldersWithFilesCount);
+  };
+
+  const fetchAllFiles = async () => {
+    const q = query(collection(db, "files"));
+    const querySnapshot = await getDocs(q);
+    const filesArray = querySnapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+    setFiles(filesArray);
+  };
 
   function getFileIcon(fileName) {
     const extension = fileName.split(".").pop().toLowerCase();
@@ -81,6 +140,7 @@ function FolderPage() {
         url: url,
       };
       setFiles((prevFiles) => [...prevFiles, newFile]);
+      updateFolderUsageChartData();
 
       toast("File uploaded successfully", {
         icon: "👏",
@@ -181,6 +241,7 @@ function FolderPage() {
             // If it's a root folder, add it to the folders array
             setFolders((prevFolders) => [...prevFolders, newFolder]);
           }
+          updateFolderUsageChartData();
 
           toast("Folder Created Successfully", {
             icon: "👏",
@@ -251,6 +312,8 @@ function FolderPage() {
       setFolderPath([]);
       setFiles([]); // Ensure files list is cleared
       fetchFolders(); // Fetch and display root folders
+      updateFolderUsageChartData();
+      fetchAllFiles();
       return;
     }
 
@@ -289,6 +352,7 @@ function FolderPage() {
             prevFolders.filter((folder) => folder.id !== folderId)
           );
         }
+        updateFolderUsageChartData();
 
         toast("Folder deleted successfully", {
           icon: "🗑️",
@@ -315,6 +379,7 @@ function FolderPage() {
       try {
         await deleteDoc(doc(db, "files", fileId));
         setFiles((prevFiles) => prevFiles.filter((file) => file.id !== fileId));
+        updateFolderUsageChartData();
         toast("File deleted successfully", {
           icon: "🗑️",
           style: {
@@ -344,7 +409,53 @@ function FolderPage() {
   }
 
   return (
-    <div className="p-5 px-8 md:px-28">
+    <div className=" p-5  md:px-28 border-2">
+      <div className="mb-5">
+        <h2 className="text-xl font-bold mb-3 text-left ">Folder Usage</h2>
+
+        {folderUsageChartData.map((data, index) => (
+          <div
+            key={index}
+            className="mb-4"
+            style={{ width: "200px", height: "200px", margin: "0 auto" }}
+          >
+            <div>
+              <h3 className="text-md font-semibold text-center">
+                {data.folderName}
+              </h3>
+            </div>
+            <div>
+              <Doughnut
+                data={{
+                  labels: ["Used", "Free"],
+                  datasets: [
+                    {
+                      label: "Folder Usage",
+                      data: [data.usagePercentage, 100 - data.usagePercentage],
+                      backgroundColor: [
+                        "rgba(54, 162, 235, 0.6)",
+                        "rgba(201, 203, 207, 0.6)",
+                      ],
+                      borderColor: [
+                        "rgba(54, 162, 235, 1)",
+                        "rgba(201, 203, 207, 1)",
+                      ],
+                      borderWidth: 1,
+                    },
+                  ],
+                }}
+                options={{
+                  circumference: 180,
+                  rotation: -90,
+                  cutout: "80%",
+                  maintainAspectRatio: false,
+                }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
       <div>
         <h2 className="text-2xl font-bold text-center mb-5">Your Folders</h2>
         <button
@@ -397,33 +508,49 @@ function FolderPage() {
         {/* Folder List */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mt-5">
           {(currentFolder ? currentFolder.subfolders : folders).map(
-            (folder) => (
-              <div
-                key={folder.id}
-                className="group cursor-pointer p-4 border border-gray-200 rounded-lg hover:shadow-lg flex flex-col items-center justify-center space-y-2"
-                onClick={() => handleFolderDoubleClick(folder)}
-              >
-                <div className="bg-blue-100 p-4 rounded-full">
-                  <FolderCog className="w-8 h-8 text-blue-500" />
+            (folder) => {
+              // Calculate the percentage of files for this folder
+              const folderFilesCount = files.filter(
+                (file) => file.folderId === folder.id
+              ).length;
+              const maxFilesPerFolder = 3; // Adjust this based on your logic
+              const filePercentage = Math.min(
+                (folderFilesCount / maxFilesPerFolder) * 100,
+                100
+              ).toFixed(0); // Ensuring it doesn't exceed 100%
+
+              return (
+                <div
+                  key={folder.id}
+                  className="group cursor-pointer p-4 border border-gray-200 rounded-lg hover:shadow-lg flex flex-col items-center justify-center space-y-2"
+                  onClick={() => handleFolderDoubleClick(folder)}
+                >
+                  <div className="bg-blue-100 p-4 rounded-full">
+                    <FolderCog className="w-8 h-8 text-blue-500" />
+                  </div>
+                  <div className="text-sm font-medium text-gray-700 truncate w-full text-center">
+                    {folder.name}
+                  </div>
+                  {/* Display the file percentage here */}
+                  <div className="text-xs font-semibold">
+                    {filePercentage}% Files
+                  </div>
+                  <div className="opacity-0 group-hover:opacity-100 transition duration-150 ease-in-out">
+                    <button
+                      type="button"
+                      className="bg-red-500 text-white p-1 rounded hover:bg-red-600 focus:outline-none"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        deleteFolder(folder.id);
+                      }}
+                      title="Delete Folder"
+                    >
+                      <Trash className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
-                <div className="text-sm font-medium text-gray-700 truncate w-full text-center">
-                  {folder.name}
-                </div>
-                <div className="opacity-0 group-hover:opacity-100 transition duration-150 ease-in-out">
-                  <button
-                    type="button"
-                    className="bg-red-500 text-white p-1 rounded hover:bg-red-600 focus:outline-none"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      deleteFolder(folder.id);
-                    }}
-                    title="Delete Folder"
-                  >
-                    <Trash className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            )
+              );
+            }
           )}
         </div>
       </div>
