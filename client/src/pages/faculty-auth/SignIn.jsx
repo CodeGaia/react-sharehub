@@ -133,7 +133,7 @@ export default function SignIn() {
             <p className="mb-10">
               Fill up the personal information and start your journey with us.
             </p>
-            <Link to="/">
+            <Link to="/signup">
               <button className="border-2 border-black text-black rounded-full px-12 py-2 inline-block font-semibold hover:bg-black hover:text-yellow-500">
                 Sign Up
               </button>
