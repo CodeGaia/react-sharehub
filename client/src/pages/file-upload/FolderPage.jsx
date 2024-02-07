@@ -15,6 +15,9 @@ import { Doughnut } from "react-chartjs-2";
 import toast, { Toaster } from "react-hot-toast";
 import Modal from "react-modal";
 import { db, storage } from "../../../firebase";
+import { RiFolderAddLine } from "react-icons/ri";
+import { RiFileAddLine } from "react-icons/ri";
+import { FaRegEdit } from "react-icons/fa";
 
 function FolderPage() {
   const [folders, setFolders] = useState([]);
@@ -46,35 +49,49 @@ function FolderPage() {
   }, []);
 
   const updateFolderUsageChartData = async () => {
-    const foldersWithFilesCount = await Promise.all(
-      folders.map(async (folder) => {
-        // Fetch files directly in the folder
-        const directFilesCount = files.filter(
-          (file) => file.folderId === folder.id
-        ).length;
+    // Helper function to recursively count files for a given folder
+    const countFilesInFolder = async (folderId) => {
+      let fileCount = 0;
+      const qFiles = query(collection(db, "files"), where("folderId", "==", folderId));
+      const filesSnapshot = await getDocs(qFiles);
+      fileCount += filesSnapshot.docs.length; // Count files directly under this folder
+  
+      // Now, find and process all subfolders
+      const qSubfolders = query(collection(db, "folders"), where("parentId", "==", folderId));
+      const subfoldersSnapshot = await getDocs(qSubfolders);
+      for (const subfolderDoc of subfoldersSnapshot.docs) {
+        const subfolderId = subfolderDoc.id;
+        const subfolderFileCount = await countFilesInFolder(subfolderId); // Recursive call
+        fileCount += subfolderFileCount;
+      }
+      
+      console.log(`Folder ID: ${folderId}, File Count: ${fileCount}`);
+      return fileCount;
+    };
+    
+      // Function to process a single folder
+    const processFolder = async (folder) => {
+      const totalFiles = await countFilesInFolder(folder.id);
+      const maxFileCount = 3; // Adjust based on your application's logic
+      const usagePercentage = Math.min((totalFiles / maxFileCount) * 100, 100);
 
-        let subfolderFilesCount = 0;
-        if (folder.subfolders) {
-          for (const subfolder of folder.subfolders) {
-            const subfolderFiles = files.filter(
-              (file) => file.folderId === subfolder.id
-            ).length;
-            subfolderFilesCount += subfolderFiles;
-          }
-        }
+      return {
+        folderId: folder.id,
+        folderName: folder.name,
+        usagePercentage,
+      };
+    };
 
-        const totalFiles = directFilesCount + subfolderFilesCount;
-        // Assuming a max of 3 files per folder for simplicity, you might want to adjust this based on your actual logic
-        const usagePercentage = (totalFiles / 3) * 100;
+      // Process root folders
+    const rootFoldersData = await Promise.all(folders.map(folder => processFolder(folder)));
 
-        return {
-          folderName: folder.name,
-          usagePercentage: Math.min(usagePercentage, 100), // Ensure it doesn't exceed 100%
-        };
-      })
-    );
-
-    setFolderUsageChartData(foldersWithFilesCount);
+    // Process subfolders if any
+    let subFoldersData = [];
+    if (currentFolder && currentFolder.subfolders) {
+      subFoldersData = await Promise.all(currentFolder.subfolders.map(folder => processFolder(folder)));
+    }
+  
+    setFolderUsageChartData([...rootFoldersData, ...subFoldersData]);
   };
 
   const fetchAllFiles = async () => {
@@ -169,27 +186,21 @@ function FolderPage() {
 
   const fetchSubfoldersAndFiles = async (folderId) => {
     // Fetch subfolders
-    const qFolders = query(
-      collection(db, "folders"),
-      where("parentId", "==", folderId)
-    );
+    const qFolders = query(collection(db, "folders"), where("parentId", "==", folderId));
     const querySnapshotFolders = await getDocs(qFolders);
     const subfoldersArray = querySnapshotFolders.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
     }));
-
+  
     // Fetch files
-    const qFiles = query(
-      collection(db, "files"),
-      where("folderId", "==", folderId)
-    );
+    const qFiles = query(collection(db, "files"), where("folderId", "==", folderId));
     const querySnapshotFiles = await getDocs(qFiles);
     const filesArray = querySnapshotFiles.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
     }));
-
+  
     // Update state
     setCurrentFolder((prevState) => ({
       ...prevState,
@@ -409,218 +420,246 @@ function FolderPage() {
   }
 
   return (
-    <div className=" p-5  md:px-28 border-2">
-      <div className="mb-5">
-        <h2 className="text-xl font-bold mb-3 text-left ">Folder Usage</h2>
-
-        {folderUsageChartData.map((data, index) => (
-          <div
-            key={index}
-            className="mb-4"
-            style={{ width: "200px", height: "200px", margin: "0 auto" }}
-          >
-            <div>
-              <h3 className="text-md font-semibold text-center">
-                {data.folderName}
-              </h3>
+    <div className="h-full w-full">
+      <div className="border-2">
+        <h2 className="text-2xl font-bold text-left m-5 text-gray-600">
+          Folder Usage
+        </h2>
+        <div className="w-full flex flex-row justify-center items-center cursor-default">
+          {folderUsageChartData.map((data, index) => (
+            <div
+              key={index}
+              className=""
+              style={{ width: "200px", height: "200px", margin: "0 auto" }}
+            >
+              <div>
+                <h3 className=" text-gray-600 text-2xl font-semibold text-center">
+                  {data.folderName}
+                </h3>
+              </div>
+              <div>
+                <Doughnut
+                  data={{
+                    labels: ["Used", "Free"],
+                    datasets: [
+                      {
+                        label: "Folder Usage",
+                        data: [
+                          data.usagePercentage,
+                          100 - data.usagePercentage,
+                        ],
+                        backgroundColor: [
+                          "rgba(54, 162, 235, 0.6)",
+                          "rgba(201, 203, 207, 0.6)",
+                        ],
+                        borderColor: [
+                          "rgba(54, 162, 235, 1)",
+                          "rgba(201, 203, 207, 1)",
+                        ],
+                        borderWidth: 1,
+                      },
+                    ],
+                  }}
+                  options={{
+                    circumference: 180,
+                    rotation: -90,
+                    cutout: "80%",
+                    maintainAspectRatio: false,
+                  }}
+                />
+              </div>
             </div>
-            <div>
-              <Doughnut
-                data={{
-                  labels: ["Used", "Free"],
-                  datasets: [
-                    {
-                      label: "Folder Usage",
-                      data: [data.usagePercentage, 100 - data.usagePercentage],
-                      backgroundColor: [
-                        "rgba(54, 162, 235, 0.6)",
-                        "rgba(201, 203, 207, 0.6)",
-                      ],
-                      borderColor: [
-                        "rgba(54, 162, 235, 1)",
-                        "rgba(201, 203, 207, 1)",
-                      ],
-                      borderWidth: 1,
-                    },
-                  ],
-                }}
-                options={{
-                  circumference: 180,
-                  rotation: -90,
-                  cutout: "80%",
-                  maintainAspectRatio: false,
-                }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div>
-        <h2 className="text-2xl font-bold text-center mb-5">Your Folders</h2>
-        <button
-          type="button"
-          className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 focus:outline-none"
-          onClick={() => setModalOpen(true)}
-        >
-          Add Folder
-        </button>
-
-        {/* Add File Button and Hidden File Input */}
-        <button
-          type="button"
-          className="ml-4 bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 focus:outline-none"
-          onClick={() => document.getElementById("fileInput").click()}
-        >
-          Add File
-        </button>
-        <input
-          type="file"
-          id="fileInput"
-          style={{ display: "none" }}
-          onChange={handleFileChange}
-        />
-      </div>
-      <div className="mb-3 text-center">
-        {/* Breadcrumb Navigation */}
-        <div className="breadcrumbs">
-          <span
-            style={{ color: "blue" }}
-            className="breadcrumb-item cursor-pointer"
-            onClick={() => handleBreadcrumbClick(0)}
-          >
-            Root
-          </span>
-          {folderPath.map((folder, index) => (
-            <React.Fragment key={folder.id}>
-              <span> / </span>
-              <span
-                style={{ color: "blue" }}
-                className="breadcrumb-item cursor-pointer"
-                onClick={() => handleBreadcrumbClick(index + 1)}
-              >
-                {folder.name}
-              </span>
-            </React.Fragment>
           ))}
         </div>
+      </div>
 
-        {/* Folder List */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mt-5">
-          {(currentFolder ? currentFolder.subfolders : folders).map(
-            (folder) => {
-              // Calculate the percentage of files for this folder
-              const folderFilesCount = files.filter(
-                (file) => file.folderId === folder.id
-              ).length;
-              const maxFilesPerFolder = 3; // Adjust this based on your logic
-              const filePercentage = Math.min(
-                (folderFilesCount / maxFilesPerFolder) * 100,
-                100
-              ).toFixed(0); // Ensuring it doesn't exceed 100%
-
-              return (
-                <div
-                  key={folder.id}
-                  className="group cursor-pointer p-4 border border-gray-200 rounded-lg hover:shadow-lg flex flex-col items-center justify-center space-y-2"
-                  onClick={() => handleFolderDoubleClick(folder)}
-                >
-                  <div className="bg-blue-100 p-4 rounded-full">
-                    <FolderCog className="w-8 h-8 text-blue-500" />
-                  </div>
-                  <div className="text-sm font-medium text-gray-700 truncate w-full text-center">
-                    {folder.name}
-                  </div>
-                  {/* Display the file percentage here */}
-                  <div className="text-xs font-semibold">
-                    {filePercentage}% Files
-                  </div>
-                  <div className="opacity-0 group-hover:opacity-100 transition duration-150 ease-in-out">
-                    <button
-                      type="button"
-                      className="bg-red-500 text-white p-1 rounded hover:bg-red-600 focus:outline-none"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        deleteFolder(folder.id);
-                      }}
-                      title="Delete Folder"
-                    >
-                      <Trash className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              );
-            }
-          )}
+      <div className="border-2">
+        <div className="flex p-5">
+          <h2 className="text-2xl font-bold text-left text-gray-600">
+            Folders
+          </h2>
         </div>
+        <div className="mx-10 flex">
+          <div>
+            <button
+              type="button"
+              className="bg-blue-500 mx-2 p-2 text-white rounded hover:bg-blue-600 focus:outline-none"
+              onClick={() => setModalOpen(true)}
+            >
+              <div className="flex flex-row">
+                <RiFolderAddLine className=" pr-1 text-2xl" />
+                Add Folder
+              </div>
+            </button>
+
+            {/* Add File Button and Hidden File Input */}
+            <button
+              type="button"
+              className=" bg-green-500 mx-2 p-2 text-white rounded hover:bg-green-600 focus:outline-none"
+              onClick={() => document.getElementById("fileInput").click()}
+            >
+              <div className="flex flex-row">
+                <RiFileAddLine className=" pr-1 text-2xl" />
+                Add File
+              </div>
+            </button>
+          </div>
+          <div className="border-2 inline-block mx-5"></div>
+          {/* Breadcrumb Navigation */}
+          <div className="breadcrumbs w-flex p-2 rounded text-center">
+            <span
+              style={{ color: "blue" }}
+              className="breadcrumb-item cursor-pointer"
+              onClick={() => handleBreadcrumbClick(0)}
+            >
+              Root
+            </span>
+            {folderPath.map((folder, index) => (
+              <React.Fragment key={folder.id}>
+                <span> / </span>
+                <span
+                  style={{ color: "blue" }}
+                  className="breadcrumb-item cursor-pointer"
+                  onClick={() => handleBreadcrumbClick(index + 1)}
+                >
+                  {folder.name}
+                </span>
+              </React.Fragment>
+            ))}
+          </div>
+
+          <input
+            type="file"
+            id="fileInput"
+            style={{ display: "none" }}
+            onChange={handleFileChange}
+          />
+        </div>
+
+        <div className="mx-12 text-center mb-5">
+            {/* Folder List */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mt-5">
+              {(currentFolder ? currentFolder.subfolders : folders).map((folder) => {
+                // Find the usage data for this folder
+                const usageData = folderUsageChartData.find(data => data.folderName === folder.name);
+                const filePercentage = usageData ? usageData.usagePercentage.toFixed(0) : '0'; // Default to '0' if not found
+
+                return (
+                  <div
+                    key={folder.id}
+                    className="group cursor-pointer p-4 border border-gray-200 rounded-lg hover:shadow-lg flex flex-col items-center justify-center space-y-2"
+                    onClick={() => handleFolderDoubleClick(folder)}
+                  >
+                    <div className="bg-blue-100 p-4 rounded-full">
+                      <FolderCog className="w-8 h-8 text-blue-500" />
+                    </div>
+                    <div className="text-sm font-medium text-gray-700 truncate w-full text-center">
+                      {folder.name}
+                    </div>
+                    {/* Display the file percentage here */}
+                    <div className="text-xs font-semibold">
+                      {filePercentage}% Files
+                    </div>
+                    <div className="opacity-0 group-hover:opacity-100 transition duration-150 ease-in-out">
+                      {/* edit button */}
+                      <button
+                        type="button"
+                        className="bg-blue-500 text-white p-1 rounded hover:bg-blue-600 focus:outline-none mx-1"
+                        title="Edit Folder"
+                        // Implement edit functionality here
+                      >
+                        <FaRegEdit className="w-4 h-4" />
+                      </button>
+
+                      {/* delete button */}
+                      <button
+                        type="button"
+                        className="bg-red-500 text-white p-1 rounded hover:bg-red-600 focus:outline-none mx-1"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          deleteFolder(folder.id);
+                        }}
+                        title="Delete Folder"
+                      >
+                        <Trash className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
       </div>
 
       {/* Files List */}
-      <div className="mt-5">
-        <h3 className="text-lg font-semibold mb-4">Files</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {files.length > 0 ? (
-            files.map((file) => (
-              <div
-                key={file.id}
-                className="border rounded-lg hover:shadow-md overflow-hidden flex flex-col"
-              >
-                <div className="flex justify-between items-center p-4">
-                  <div className="flex items-center space-x-3">
-                    {getFileIcon(file.name)}
-                    <span className="text-sm font-medium truncate">
-                      {truncateFileName(file.name)}
-                    </span>
+      <div className=" border-2">
+        <h3 className="text-2xl text-gray-600 font-semibold m-5">Files</h3>
+
+        <div className="mx-12 mb-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {files.length > 0 ? (
+              files.map((file) => (
+                <div
+                  key={file.id}
+                  className="border rounded-lg hover:shadow-md overflow-hidden flex flex-col"
+                >
+                  <div className="flex justify-between items-center p-4">
+                    <div className="flex items-center space-x-3">
+                      {getFileIcon(file.name)}
+                      <span className="text-sm font-medium truncate">
+                        {truncateFileName(file.name)}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => deleteFile(file.id)}
+                      className="text-red-500 hover:text-red-600"
+                      title="Delete File"
+                    >
+                      <Trash className="w-5 h-5" />
+                    </button>
                   </div>
-                  <button
-                    onClick={() => deleteFile(file.id)}
-                    className="text-red-500 hover:text-red-600"
-                    title="Delete File"
-                  >
-                    <Trash className="w-5 h-5" />
-                  </button>
-                </div>
-                <div className="flex-grow p-3 bg-gray-100 flex items-center justify-center">
-                  {isImageFile(file.name) ? (
-                    <img
-                      src={file.url}
-                      alt="Preview"
-                      className="max-h-36 w-auto"
-                      onClick={() => setPreviewUrl(file.url)}
-                    />
-                  ) : (
+                  <div className="flex-grow p-3 bg-gray-100 flex items-center justify-center">
+                    {isImageFile(file.name) ? (
+                      <img
+                        src={file.url}
+                        alt="Preview"
+                        className="max-h-36 w-auto"
+                        onClick={() => setPreviewUrl(file.url)}
+                      />
+                    ) : (
+                      <a
+                        href={file.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-500 hover:text-blue-600 underline"
+                      >
+                        Open
+                      </a>
+                    )}
+                  </div>
+                  <div className="p-4 bg-white flex justify-between items-center">
                     <a
                       href={file.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-500 hover:text-blue-600 underline"
+                      download
+                      className="text-sm text-gray-500 hover:text-gray-600"
                     >
-                      Open
+                      Download
                     </a>
-                  )}
+                    {isImageFile(file.name) && (
+                      <button
+                        onClick={() => setPreviewUrl(file.url)}
+                        className="text-sm text-blue-500 hover:text-blue-600"
+                      >
+                        Preview
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div className="p-4 bg-white flex justify-between items-center">
-                  <a
-                    href={file.url}
-                    download
-                    className="text-sm text-gray-500 hover:text-gray-600"
-                  >
-                    Download
-                  </a>
-                  {isImageFile(file.name) && (
-                    <button
-                      onClick={() => setPreviewUrl(file.url)}
-                      className="text-sm text-blue-500 hover:text-blue-600"
-                    >
-                      Preview
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))
-          ) : (
-            <p className="text-gray-500">No files in this folder.</p>
-          )}
+              ))
+            ) : (
+              <p className="text-gray-500">No files in this folder.</p>
+            )}
+          </div>
         </div>
       </div>
 
