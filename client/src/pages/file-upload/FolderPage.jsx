@@ -7,6 +7,7 @@ import {
   getDocs,
   query,
   where,
+  updateDoc
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { File, FileText, FolderCog, Image, Trash, X } from "lucide-react";
@@ -28,6 +29,9 @@ function FolderPage() {
   const [files, setFiles] = useState([]);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [folderUsageChartData, setFolderUsageChartData] = useState([]);
+  const [isEditModalOpen, setEditModalOpen] = useState(false);
+  const [editingFolder, setEditingFolder] = useState(null);
+  const [editedFolderName, setEditedFolderName] = useState("");
 
   useEffect(() => {
     const fetchInitialDataAndUpdateChart = async () => {
@@ -419,6 +423,43 @@ function FolderPage() {
     )}...${extension}`;
   }
 
+  //Update the foldername
+  const handleEditFolder = async (e) => {
+    e.preventDefault();
+    if (!editingFolder || editedFolderName.trim() === "") return;
+  
+    try {
+      const folderRef = doc(db, "folders", editingFolder.id);
+      await updateDoc(folderRef, {
+        name: editedFolderName,
+      });
+  
+      // Update the local state to reflect the change
+      setFolders((prevFolders) =>
+        prevFolders.map((folder) =>
+          folder.id === editingFolder.id ? { ...folder, name: editedFolderName } : folder
+        )
+      );
+      if (currentFolder && currentFolder.id === editingFolder.id) {
+        setCurrentFolder((prev) => ({ ...prev, name: editedFolderName }));
+      }
+  
+      toast("Folder name updated successfully", {
+        icon: "✅",
+        style: {
+          borderRadius: "10px",
+          background: "#333",
+          color: "#fff",
+        },
+      });
+    } catch (error) {
+      console.error("Error updating folder name: ", error);
+      toast.error("Error updating folder name");
+    }
+  
+    setEditModalOpen(false);
+  };
+
   return (
     <div className="h-full w-full">
       <div className="border-2">
@@ -566,7 +607,13 @@ function FolderPage() {
                         type="button"
                         className="bg-blue-500 text-white p-1 rounded hover:bg-blue-600 focus:outline-none mx-1"
                         title="Edit Folder"
-                        // Implement edit functionality here
+                        onClick={(eveny) => {
+                          event.stopPropagation();
+                          setEditingFolder(folder);
+                          setEditedFolderName(folder.name);
+                          setEditModalOpen(true);
+                        }}
+                        
                       >
                         <FaRegEdit className="w-4 h-4" />
                       </button>
@@ -738,6 +785,47 @@ function FolderPage() {
           </div>
         </div>
       </Modal>
+
+        {/* Modal for editing a folder name */}
+      <Modal
+          isOpen={isEditModalOpen}
+          onRequestClose={() => setEditModalOpen(false)}
+          contentLabel="Edit Folder Name"
+          className="fixed inset-0 overflow-y-auto"
+        >
+          <div className="flex items-center justify-center min-h-screen">
+            <div className="bg-white rounded-lg overflow-hidden shadow-xl transform transition-all sm:max-w-lg sm:w-full p-4">
+              <h3 className="text-lg leading-6 font-medium text-gray-900">
+                Edit Folder Name
+              </h3>
+              <div className="mt-2">
+                <input
+                  type="text"
+                  className="border p-2 mb-4 w-full"
+                  placeholder="Enter new folder name"
+                  value={editedFolderName}
+                  onChange={(e) => setEditedFolderName(e.target.value)}
+                />
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 focus:outline-none mr-2"
+                  onClick={handleEditFolder}
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 focus:outline-none"
+                  onClick={() => setEditModalOpen(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </Modal>
       <Toaster position="top-center" reverseOrder={false} />
     </div>
   );
